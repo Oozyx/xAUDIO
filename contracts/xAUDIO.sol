@@ -24,7 +24,8 @@ contract xAUDIO is Initializable, ERC20UpgradeSafe, OwnableUpgradeSafe, Pausable
 
     // Constants
     uint256 internal constant AUDIO_STAKING_PERCENTAGE = 95;
-    uint256 private constant MAX_UINT = 2**256 - 1;
+    uint256 internal constant MAX_UINT = 2**256 - 1;
+    uint256 internal constant INITIAL_SUPPLY_MULTIPLIER = 10;
 
     // Internal members to be initialized at time of construction
     IClaimsManager internal audioClaimsManager;
@@ -76,7 +77,6 @@ contract xAUDIO is Initializable, ERC20UpgradeSafe, OwnableUpgradeSafe, Pausable
     /// @param _tokenAmount The amount of tokens the sender wishes to be wrapped.
     function mintWithToken(uint256 _tokenAmount) external whenNotPaused {
         require(_tokenAmount > 0, "Must send token.");
-        require(audioToken.balanceOf(msg.sender) >= _tokenAmount, "Sender does not have enough tokens.");
 
         audioToken.safeTransferFrom(msg.sender, address(this), _tokenAmount);
 
@@ -87,8 +87,8 @@ contract xAUDIO is Initializable, ERC20UpgradeSafe, OwnableUpgradeSafe, Pausable
     }
 
     function _xAUDIOTokenMint(uint256 _audioTokenAmount) private {
-        // TODO: currently xToken to AUDIO is 1 to 1. implement logic similar to xINCH
-        _mint(msg.sender, _audioTokenAmount);
+        uint256 mintAmount = calculateMintAmount(_audioTokenAmount);
+        _mint(msg.sender, mintAmount);
     }
 
     /* ========================================================================================= */
@@ -208,6 +208,14 @@ contract xAUDIO is Initializable, ERC20UpgradeSafe, OwnableUpgradeSafe, Pausable
     /*                                        Getters                                            */
     /* ========================================================================================= */
 
+    function getNav() public view returns (uint256) {
+        // Nav is calculated as: staked amount + contract balance - minus fees
+        return
+            totalStakedAmount.add(audioToken.balanceOf(address(this))).sub(withdrawableAudioTokenFees).sub(
+                stakedAudioTokenFees
+            );
+    }
+
     function getCurrentStakedPercentage() public view returns (uint256) {
         uint256 currentAudioBalance = audioToken.balanceOf(address(this)).sub(withdrawableAudioTokenFees);
         uint256 totalAudioAmount = currentAudioBalance.add(totalStakedAmount).sub(stakedAudioTokenFees);
@@ -231,11 +239,19 @@ contract xAUDIO is Initializable, ERC20UpgradeSafe, OwnableUpgradeSafe, Pausable
     }
 
     /* ========================================================================================= */
-    /*                                        Getters                                            */
+    /*                                        Utils                                              */
     /* ========================================================================================= */
 
     function calculateFee(uint256 _tokenAmount, uint256 _feeFraction) private pure returns (uint256) {
         return _tokenAmount.mul(_feeFraction).div(100000);
+    }
+
+    function calculateMintAmount(uint256 addedAudioAmount) public view returns (uint256) {
+        if (totalSupply() == 0) {
+            return addedAudioAmount.mul(INITIAL_SUPPLY_MULTIPLIER);
+        }
+        uint256 previousNav = getNav().sub(addedAudioAmount);
+        return addedAudioAmount.mul(totalSupply()).div(previousNav);
     }
 }
 
